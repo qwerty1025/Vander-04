@@ -1,0 +1,1878 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>快閃結帳台 POS (藍牙出單 + 月結日曆卡版)</title>
+    <!-- 引入 Google Fonts: M PLUS Rounded 1c 與 JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,500;0,700;0,800;1,500&family=M+PLUS+Rounded+1c:wght@400;500;700;800&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --primary: #007aff; --bg-color: #f2f2f7; --card-bg: #ffffff;
+            --text-main: #1c1c1e; --text-muted: #8e8e93; --border: #e5e5ea;
+            --milk-bg: #f0f8ff; --milk-txt: #0056b3;
+            --yogurt-bg: #fff6e5; --yogurt-txt: #b25e00;
+            --bun-bg: #f0fdf4; --bun-txt: #15803d;
+            --danger: #ff3b30; --success: #34c759;
+            --cathay-green: #009944;
+            --font-main: 'M PLUS Rounded 1c', -apple-system, BlinkMacSystemFont, "Microsoft JhengHei", "微軟正黑體", sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+        }
+
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body { 
+            font-family: var(--font-main); 
+            margin: 0; background-color: var(--bg-color); color: var(--text-main); 
+            height: 100dvh; display: flex; flex-direction: column; overflow: hidden; 
+        }
+
+        /* 數字與金額專用等寬字體 */
+        .mono, .p-price, .stat-val, .inv-qty, .ve-price-input, #discount-val, #total-price {
+            font-family: var(--font-mono) !important;
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* 頂部極簡 Header */
+        .header { 
+            background-color: var(--card-bg); 
+            padding: calc(env(safe-area-inset-top) + 8px) 10px 8px; 
+            border-bottom: 1px solid var(--border); 
+            display: flex; justify-content: space-between; align-items: center; 
+            flex-shrink: 0; z-index: 10; gap: 5px;
+        }
+        .header-title { font-size: 1.05rem; font-weight: 800; color: var(--text-main); white-space: nowrap; display: flex; align-items: center; gap: 4px; }
+        .header-controls { display: flex; gap: 4px; align-items: center; overflow-x: auto; }
+        .compact-input { 
+            font-family: var(--font-main);
+            padding: 4px 6px; border-radius: 6px; border: 1px solid var(--primary); 
+            background: #f0f8ff; color: var(--primary); font-size: 0.8rem; font-weight: 700; 
+        }
+        
+        /* 藍牙狀態按鈕 */
+        .bt-badge {
+            display: inline-flex; align-items: center; gap: 4px;
+            padding: 4px 8px; border-radius: 6px; font-size: 0.78rem; font-weight: 800;
+            border: 1px solid var(--border); background: #f2f2f7; color: var(--text-muted);
+            cursor: pointer; white-space: nowrap; transition: 0.2s;
+        }
+        .bt-badge.connected {
+            background: #e8f5e9; color: #15803d; border-color: #86efac;
+        }
+        .bt-dot { width: 7px; height: 7px; border-radius: 50%; background: #8e8e93; }
+        .bt-badge.connected .bt-dot { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+
+        #loading-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(255,255,255,0.92); z-index:999; display:flex; flex-direction:column; justify-content:center; align-items:center; font-size:1.2rem; font-weight:800; color:var(--primary); }
+
+        /* 內容區共用 */
+        .tab-content { flex-grow: 1; overflow-y: auto; display: none; flex-direction: column; padding-bottom: 20px; }
+        .tab-content.active { display: flex; }
+        .page-title { padding: 15px 15px 5px; font-size: 1.2rem; font-weight: 800; display: flex; justify-content: space-between; align-items: center;}
+        .section-title { padding: 10px 15px; font-size: 0.95rem; font-weight: 800; color: var(--text-muted); }
+
+        /* POS 結帳頁 */
+        .product-area { padding: 10px; background: var(--card-bg); flex-shrink: 0; }
+        .product-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+        .btn-product { font-family: var(--font-main); border: none; border-radius: 10px; padding: 10px 2px; text-align: center; cursor: pointer; font-weight: 700; font-size: 0.95rem; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .btn-product:active { opacity: 0.5; }
+        .p-price { font-size: 0.78rem; opacity: 0.8; margin-top: 2px; font-weight: 700; }
+        .cat-milk { background: var(--milk-bg); color: var(--milk-txt); }
+        .cat-yogurt { background: var(--yogurt-bg); color: var(--yogurt-txt); }
+        .cat-bun { background: var(--bun-bg); color: var(--bun-txt); }
+
+        .cart-area { flex-grow: 1; overflow-y: auto; padding: 10px; }
+        .cart-item { background: var(--card-bg); border-radius: 10px; padding: 10px 15px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 2px rgba(0,0,0,0.03); }
+        .qty-controls { display: flex; align-items: center; gap: 12px; }
+        .qty-btn { font-family: var(--font-mono); width: 30px; height: 30px; border-radius: 15px; border: none; background: var(--bg-color); color: var(--primary); font-size: 1.2rem; font-weight: 800; cursor: pointer; }
+        
+        .tags-section { background: var(--card-bg); padding: 8px 15px; border-top: 1px dashed var(--border); flex-shrink: 0; }
+        .tags-group { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 5px; }
+        .chip { font-family: var(--font-main); padding: 4px 10px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg-color); color: var(--text-muted); font-size: 0.82rem; font-weight: 700; cursor: pointer; transition: 0.2s; }
+        .chip.active { background: var(--primary); color: white; border-color: var(--primary); }
+
+        /* POS 底部月結日曆快速勾選列 */
+        .cal-quick-bar {
+            display: flex; align-items: center; justify-content: space-between;
+            background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px;
+            padding: 6px 10px; margin-top: 4px;
+        }
+        .cal-quick-label {
+            display: flex; align-items: center; gap: 6px; font-size: 0.82rem; font-weight: 800; color: #15803d; cursor: pointer;
+        }
+        .cal-month-pills { display: none; gap: 4px; align-items: center; }
+        .cal-month-pills.show { display: inline-flex; }
+        .cal-pill {
+            font-family: var(--font-main); font-size: 0.75rem; font-weight: 800;
+            padding: 3px 8px; border-radius: 6px; border: 1px solid #86efac;
+            background: white; color: #15803d; cursor: pointer;
+        }
+        .cal-pill.active { background: #15803d; color: white; border-color: #15803d; }
+
+        .checkout-bar { background: var(--card-bg); padding: 10px 15px 12px; border-top: 1px solid var(--border); flex-shrink: 0; }
+        .checkout-info { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;}
+        .discount-btn { font-family: var(--font-main); background: #fff0f0; color: var(--danger); border: 1px solid #ffd6d6; padding: 6px 10px; border-radius: 6px; font-weight: 700; font-size: 0.9rem; cursor: pointer; }
+        .checkout-actions { display: flex; gap: 8px; }
+        .btn-main { flex: 1; font-family: var(--font-main); background: var(--primary); color: white; border: none; padding: 13px; border-radius: 10px; font-size: 1.05rem; font-weight: 800; cursor: pointer; }
+        .btn-main.disabled { background: var(--border); color: var(--text-muted); pointer-events: none;}
+        .btn-preview-mini { font-family: var(--font-main); background: #f0f8ff; color: var(--primary); border: 1px solid var(--primary); padding: 0 12px; border-radius: 10px; font-weight: 800; font-size: 0.88rem; cursor: pointer; white-space: nowrap; }
+
+        /* ====== 紀錄與報表頁 ====== */
+        .history-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 0 15px; }
+        .record-card { 
+            background: var(--card-bg); padding: 10px; border-radius: 10px; display: flex; flex-direction: column; justify-content: space-between; 
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05); cursor: pointer; transition: transform 0.1s; border: 1px solid transparent;
+        }
+        .record-card:active { transform: scale(0.97); border-color: var(--primary); }
+        
+        .record-header { display: flex; flex-direction: column; gap: 2px; border-bottom: 1px dashed var(--border); padding-bottom: 6px; margin-bottom: 6px;}
+        .record-header-top { display: flex; justify-content: space-between; align-items: center; }
+        .tag-badge { background: #e3f2fd; color: #0056b3; font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; margin-top: 4px; display: inline-block; font-weight: 700;}
+        
+        .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 0 15px; margin-bottom: 10px;}
+        .stat-box { background: var(--card-bg); padding: 12px; border-radius: 10px; text-align: center; }
+        .stat-box.highlight { background: var(--primary); color: white; }
+        .stat-box.full { grid-column: span 2; display: flex; justify-content: space-between; align-items: center; padding: 12px 15px;}
+        .stat-val { font-size: 1.35rem; font-weight: 800; margin-top: 4px; }
+
+        .crm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 0 15px; margin-bottom: 10px; }
+        .crm-item { background: white; padding: 10px; border-radius: 8px; display: flex; justify-content: space-between; font-size: 0.9rem; font-weight: 700;}
+        
+        .report-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 0 15px; }
+        .inv-card { background: var(--card-bg); border-radius: 8px; padding: 10px 5px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .inv-name { font-size: 0.8rem; font-weight: 700; margin-bottom: 4px; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+        .inv-qty { font-size: 1.2rem; font-weight: 800; color: var(--primary); }
+
+        /* ====== 外派中心 ====== */
+        .sub-nav { display: flex; background: #e5e5ea; border-radius: 8px; margin: 0 15px 10px; padding: 3px; }
+        .sub-nav-btn { flex: 1; font-family: var(--font-main); padding: 6px; border: none; background: transparent; border-radius: 6px; font-weight: 700; font-size: 0.85rem; color: var(--text-muted); transition: all 0.2s; cursor: pointer; }
+        .sub-nav-btn.active { background: white; color: var(--primary); box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .admin-section { display: none; flex-direction: column; }
+        .admin-section.active { display: flex; }
+        
+        .admin-card { background: var(--card-bg); margin: 0 15px 10px; padding: 12px; border-radius: 10px; display: flex; gap: 10px; align-items: center; justify-content: space-between; box-shadow: 0 1px 2px rgba(0,0,0,0.03); }
+        .btn-outline { font-family: var(--font-main); border: 1px solid var(--primary); color: var(--primary); background: transparent; padding: 4px 10px; border-radius: 6px; font-size: 0.85rem; font-weight: 700; cursor: pointer; }
+        .profit-badge { display: inline-block; background: #e8f5e9; color: #2e7d32; font-size: 0.75rem; padding: 2px 6px; border-radius: 4px; margin-top: 4px; font-weight: 700; }
+        .sort-badge { font-family: var(--font-mono); background: #343a40; color: white; font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; font-weight: 700; }
+
+        /* ====== 藍牙印表機、月結日曆卡設定與模擬出血直式尺規預覽 ====== */
+        .packet-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 6px; }
+        .packet-btn {
+            font-family: var(--font-mono);
+            padding: 8px 4px; border-radius: 8px; border: 1px solid var(--border);
+            background: var(--bg-color); color: var(--text-main); font-size: 0.85rem; font-weight: 700;
+            text-align: center; cursor: pointer; transition: 0.15s;
+        }
+        .packet-btn.active { background: var(--primary); color: white; border-color: var(--primary); }
+
+        .weekday-selector { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-top: 6px; }
+        .wd-btn {
+            font-family: var(--font-main); padding: 6px 0; border-radius: 6px;
+            border: 1px solid var(--border); background: var(--bg-color); color: var(--text-muted);
+            font-size: 0.78rem; font-weight: 800; text-align: center; cursor: pointer;
+        }
+        .wd-btn.active { background: var(--cathay-green); color: white; border-color: var(--cathay-green); }
+
+        .cathay-config-box {
+            background: #f4fbf7; border: 1px solid #b7ebce; border-radius: 10px; padding: 10px; margin-top: 8px;
+        }
+        .cathay-title {
+            font-size: 0.82rem; font-weight: 800; color: #007030; display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;
+        }
+
+        /* 模擬出血 5mm 與 直式 mm 尺規容器 */
+        .print-simulator-wrap {
+            background: #2c2c2e;
+            border-radius: 12px;
+            padding: 16px 12px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            overflow-x: auto;
+            box-shadow: inset 0 2px 8px rgba(0,0,0,0.4);
+        }
+        .sim-legend {
+            display: flex; gap: 12px; font-size: 0.75rem; color: #d1d1d6; margin-bottom: 10px; align-items: center; flex-wrap: wrap; justify-content: center;
+        }
+        .sim-legend-box { width: 12px; height: 12px; display: inline-block; vertical-align: middle; margin-right: 4px; border-radius: 2px; }
+        
+        .ruler-and-paper {
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            position: relative;
+        }
+        /* 直式 mm 尺規 Canvas */
+        #mm-ruler-canvas {
+            background: #f5f5f0;
+            border-right: 1px solid #999;
+            border-radius: 4px 0 0 4px;
+            box-shadow: -2px 2px 6px rgba(0,0,0,0.25);
+        }
+        /* 58mm 紙卷模擬區 (含左右各 5mm 出血區 + 中間 48mm 有效列印區) */
+        .paper-58mm-stage {
+            position: relative;
+            background: #ffffff;
+            display: flex;
+            box-shadow: 2px 4px 12px rgba(0,0,0,0.35);
+            border-radius: 0 4px 4px 0;
+            overflow: hidden;
+        }
+        .bleed-zone {
+            background: repeating-linear-gradient(
+                45deg,
+                rgba(255, 59, 48, 0.08),
+                rgba(255, 59, 48, 0.08) 4px,
+                rgba(255, 59, 48, 0.18) 4px,
+                rgba(255, 59, 48, 0.18) 8px
+            );
+            border-right: 1px dashed rgba(255, 59, 48, 0.6);
+            position: relative;
+            flex-shrink: 0;
+        }
+        .bleed-zone.right {
+            border-right: none;
+            border-left: 1px dashed rgba(255, 59, 48, 0.6);
+        }
+        .bleed-tag {
+            position: absolute; top: 6px; left: 50%; transform: translateX(-50%) rotate(90deg);
+            font-family: var(--font-mono); font-size: 9px; color: #d32f2f; white-space: nowrap; font-weight: 700; letter-spacing: 0.5px;
+        }
+        .bleed-top-bottom-overlay {
+            position: absolute; left: 0; right: 0; pointer-events: none;
+            background: rgba(255, 59, 48, 0.07);
+        }
+        .bleed-top-bottom-overlay.top { top: 0; border-bottom: 1px dashed rgba(255, 59, 48, 0.6); }
+        .bleed-top-bottom-overlay.bottom { bottom: 0; border-top: 1px dashed rgba(255, 59, 48, 0.6); }
+
+        #receipt-preview-canvas {
+            display: block;
+            background: #fff;
+        }
+
+        /* 彈跳視窗共用 */
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 100; display: none; justify-content: center; align-items: center; }
+        .modal-box { background: white; width: 92%; max-width: 440px; max-height: 88dvh; border-radius: 16px; padding: 18px; display: flex; flex-direction: column; overflow-y: auto; }
+        .modal-title { font-size: 1.1rem; font-weight: 800; margin-bottom: 12px; text-align: center; }
+        .modal-actions { display: flex; gap: 10px; flex-shrink: 0; margin-top: 15px;}
+        .btn-cancel { flex: 1; font-family: var(--font-main); background: #e5e5ea; color: #1c1c1e; border: none; padding: 10px; border-radius: 8px; font-weight: 700; cursor: pointer; }
+        .btn-confirm { flex: 1; font-family: var(--font-main); background: var(--primary); color: white; border: none; padding: 10px; border-radius: 8px; font-weight: 700; cursor: pointer; }
+        .input-field { font-family: var(--font-main); width: 100%; padding: 9px 10px; font-size: 0.95rem; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; }
+        
+        .discount-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
+        .btn-discount-preset { font-family: var(--font-mono); background: #f2f2f7; border: none; padding: 12px 0; border-radius: 8px; font-weight: 800; font-size: 1rem; color: var(--text-main); cursor: pointer; }
+        .venue-editor-list { overflow-y: auto; flex-grow: 1; border: 1px solid var(--border); border-radius: 8px; padding: 8px; background: #fafafa;}
+        .ve-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #e5e5ea; }
+        .ve-price-input { width: 65px; padding: 4px; border: 1px solid #ccc; border-radius: 4px; text-align: center; font-size:0.9rem; font-weight: 700;}
+
+        /* 底部導航列 */
+        .bottom-nav { background: rgba(255,255,255,0.92); backdrop-filter: blur(10px); border-top: 1px solid var(--border); display: flex; justify-content: space-around; padding: 8px 0 calc(env(safe-area-inset-bottom) + 8px); flex-shrink: 0; z-index: 20; }
+        .nav-item { text-align: center; font-size: 0.72rem; color: var(--text-muted); display: flex; flex-direction: column; align-items: center; gap: 3px; flex: 1; cursor: pointer; font-weight: 700; }
+        .nav-item.active { color: var(--primary); font-weight: 800; }
+        .nav-icon { font-size: 1.25rem; }
+    </style>
+</head>
+<body>
+
+    <div id="loading-overlay">⚡ 系統與字體同步中...</div>
+
+    <!-- 頂部全局導航 -->
+    <div class="header">
+        <div class="header-title">⚡快閃結帳</div>
+        <div class="header-controls">
+            <button class="bt-badge" id="header-bt-btn" onclick="window.handleHeaderBtClick()" title="點擊連線藍牙出單機">
+                <span class="bt-dot"></span>
+                <span id="header-bt-text">藍牙未連</span>
+            </button>
+            <select class="compact-input" id="global-venue-select" onchange="window.changeVenue()"></select>
+            <input type="date" id="global-date-filter" class="compact-input mono" onchange="window.onGlobalDateChange()">
+        </div>
+    </div>
+
+    <!-- 分頁 1: 結帳 (POS) -->
+    <div id="tab-pos" class="tab-content active">
+        <div class="product-area"><div class="product-grid" id="product-grid"></div></div>
+        <div class="cart-area" id="cart-area">
+            <div id="cart-list"><div style="text-align:center; padding: 20px; color: #8e8e93; font-size: 0.9rem;">點擊上方商品開始結帳</div></div>
+        </div>
+        
+        <div class="tags-section">
+            <div class="tags-group" id="tags-type">
+                <button class="chip" onclick="window.toggleTag('type', '首次購買', this)">🆕 首次</button>
+                <button class="chip" onclick="window.toggleTag('type', '回購客', this)">🔄 回購</button>
+            </div>
+            <div class="tags-group" id="tags-demo">
+                <button class="chip" onclick="window.toggleTag('demo', '長輩', this)">👴 長輩</button>
+                <button class="chip" onclick="window.toggleTag('demo', '夫婦', this)">👫 夫婦</button>
+                <button class="chip" onclick="window.toggleTag('demo', '新手爸媽', this)">👶 新手爸媽</button>
+                <button class="chip" onclick="window.toggleTag('demo', '學生', this)">🎓 學生</button>
+                <button class="chip" onclick="window.toggleTag('demo', '情侶', this)">💕 情侶</button>
+            </div>
+
+            <!-- 按月結帳專用：快速勾選附印日曆卡牌 (1~2個月) + 國泰世華表格 -->
+            <div class="cal-quick-bar">
+                <label class="cal-quick-label">
+                    <input type="checkbox" id="pos-chk-calendar" style="width:17px; height:17px; accent-color:#15803d;" onchange="window.syncCalendarToggle(this.checked)">
+                    <span>📅 附印月結日曆卡 + 國泰匯款表</span>
+                </label>
+                <div class="cal-month-pills" id="pos-cal-pills">
+                    <button class="cal-pill active" id="pos-pill-1m" onclick="window.setCalendarMonths(1)">1個月</button>
+                    <button class="cal-pill" id="pos-pill-2m" onclick="window.setCalendarMonths(2)">2個月</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="checkout-bar">
+            <div class="checkout-info">
+                <button class="discount-btn" onclick="window.openDiscountModal()">🎟️ 折扣: -$<span id="discount-val">0</span></button>
+                <div style="font-size: 1.45rem; font-weight: 800;" class="mono">$<span id="total-price">0</span></div>
+            </div>
+            <div class="checkout-actions">
+                <button class="btn-preview-mini" onclick="window.previewCurrentCartReceipt()">📏 出單預覽</button>
+                <button class="btn-main disabled" id="btn-checkout" onclick="window.checkout()">完成結帳 (同步+出單)</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 分頁 2: 歷史紀錄 -->
+    <div id="tab-history" class="tab-content">
+        <div class="page-title">
+            <span>訂單紀錄 <span style="font-size:0.8rem;color:var(--text-muted);font-weight:normal;">(點擊可編輯/補印)</span></span>
+            <div style="display:flex; gap:6px;">
+                <button class="btn-outline" style="padding: 4px 6px;" onclick="window.cleanInvalidOrders()">清無效單</button>
+            </div>
+        </div>
+        <div id="history-list" class="history-grid"></div>
+    </div>
+
+    <!-- 分頁 3: 業績與備貨報表 -->
+    <div id="tab-stats" class="tab-content">
+        <div class="sub-nav" style="margin-top: 15px;">
+            <button class="sub-nav-btn active" id="btn-stat-daily" onclick="window.switchStatMode('daily')">本日報表</button>
+            <button class="sub-nav-btn" id="btn-stat-monthly" onclick="window.switchStatMode('monthly')">本月報表</button>
+        </div>
+        
+        <div class="stat-grid">
+            <div class="stat-box highlight">
+                <div style="font-size:0.85rem; opacity:0.9;">總營業額</div>
+                <div class="stat-val">$<span id="stat-revenue">0</span></div>
+            </div>
+            <div class="stat-box">
+                <div style="font-size:0.85rem; color: var(--text-muted);">總毛利</div>
+                <div class="stat-val" style="color: var(--success);">$<span id="stat-profit">0</span></div>
+            </div>
+            <div class="stat-box full">
+                <div style="font-weight:bold; color:var(--text-muted); font-size:0.9rem;">👥 成功結帳來客數</div>
+                <div class="stat-val" style="color:var(--text-main); margin:0; font-size: 1.3rem;"><span id="stat-customers">0</span> 人</div>
+            </div>
+        </div>
+
+        <div class="section-title">🏷️ 客群與回購分析</div>
+        <div class="crm-grid" id="stat-crm-list"></div>
+
+        <div class="section-title">📦 銷售統計卡牌</div>
+        <div class="report-grid" id="inventory-list"></div>
+    </div>
+
+    <!-- 分頁 4: 外派中心與藍牙出單設定 -->
+    <div id="tab-settings" class="tab-content">
+        <div class="page-title">外派與出單中心</div>
+        
+        <div class="sub-nav">
+            <button class="sub-nav-btn active" id="btn-admin-printer" onclick="window.switchAdminTab('printer')">🖨️ 藍牙與月結卡</button>
+            <button class="sub-nav-btn" id="btn-admin-venues" onclick="window.switchAdminTab('venues')">📍 場地管理</button>
+            <button class="sub-nav-btn" id="btn-admin-products" onclick="window.switchAdminTab('products')">📦 商品庫</button>
+        </div>
+
+        <!-- 藍牙出單設定 + 月結日曆卡 + 國泰世華表格 + 5mm 出血尺規模擬器 -->
+        <div id="admin-printer" class="admin-section active">
+            <!-- 區塊 A: 藍牙連線與封包設定 -->
+            <div class="admin-card" style="flex-direction: column; align-items: stretch; gap: 12px;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <div style="font-weight:800; font-size:1rem;">藍牙熱感應出單機 (58mm)</div>
+                        <div style="font-size:0.8rem; color:var(--text-muted);" id="bt-device-name">狀態：尚未連線</div>
+                    </div>
+                    <div style="display:flex; gap:6px;">
+                        <button class="btn-outline" id="btn-bt-connect" onclick="window.connectBluetoothPrinter()">🔍 搜尋連線</button>
+                        <button class="btn-outline" style="color:var(--danger); border-color:var(--danger); display:none;" id="btn-bt-disconnect" onclick="window.disconnectBluetoothPrinter()">中斷</button>
+                    </div>
+                </div>
+
+                <div style="border-top: 1px dashed var(--border); padding-top: 10px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <span style="font-size:0.85rem; font-weight:800;">傳輸封包大小 (Chunk Bytes)</span>
+                        <span class="mono" style="font-size:0.8rem; color:var(--primary); font-weight:700;" id="packet-size-label">目前：240 Bytes</span>
+                    </div>
+                    <div class="packet-grid" id="packet-size-group">
+                        <button class="packet-btn" onclick="window.setPacketSize(120)">120 B</button>
+                        <button class="packet-btn active" onclick="window.setPacketSize(240)">240 B</button>
+                        <button class="packet-btn" onclick="window.setPacketSize(320)">320 B</button>
+                        <button class="packet-btn" onclick="window.setPacketSize(480)">480 B</button>
+                    </div>
+                </div>
+
+                <div style="border-top: 1px dashed var(--border); padding-top: 10px; display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <div style="font-size:0.85rem; font-weight:800;">結帳時自動藍牙出單</div>
+                        <div style="font-size:0.75rem; color:var(--text-muted);">連線狀態下點擊完成結帳即自動列印</div>
+                    </div>
+                    <input type="checkbox" id="chk-auto-print" checked style="width:20px; height:20px;" onchange="window.toggleAutoPrint(this.checked)">
+                </div>
+
+                <div style="border-top: 1px dashed var(--border); padding-top: 10px;">
+                    <label style="font-size:0.8rem; color:var(--text-muted); font-weight:700;">收據抬頭名稱</label>
+                    <input type="text" id="receipt-header-input" class="input-field" style="margin-top:4px; margin-bottom:0;" value="五寮尖山羊乳 · 咩味時刻" onchange="window.refreshSimulatorPreview()">
+                </div>
+            </div>
+
+            <!-- 區塊 B: 按月結帳日曆卡牌 (1~2個月) 與 國泰世華銀行匯款表格設定 -->
+            <div class="admin-card" style="flex-direction: column; align-items: stretch; gap: 10px;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <div style="font-weight:800; font-size:1rem; color:#15803d;">📅 按月結帳：日曆卡牌列印</div>
+                        <div style="font-size:0.76rem; color:var(--text-muted);">啟用後將於明細下方加印 1～2 個月配送/取貨日曆格</div>
+                    </div>
+                    <input type="checkbox" id="admin-chk-calendar" style="width:22px; height:22px; accent-color:#15803d;" onchange="window.syncCalendarToggle(this.checked)">
+                </div>
+
+                <div style="display:flex; gap:10px; align-items:center; border-top: 1px dashed var(--border); padding-top: 10px;">
+                    <div style="flex:1;">
+                        <label style="font-size:0.78rem; color:var(--text-muted); font-weight:700;">列印月份數</label>
+                        <div style="display:flex; gap:6px; margin-top:4px;">
+                            <button class="packet-btn active" id="admin-pill-1m" style="flex:1;" onclick="window.setCalendarMonths(1)">1 個月</button>
+                            <button class="packet-btn" id="admin-pill-2m" style="flex:1;" onclick="window.setCalendarMonths(2)">2 個月 (跨月)</button>
+                        </div>
+                    </div>
+                    <div style="flex:1;">
+                        <label style="font-size:0.78rem; color:var(--text-muted); font-weight:700;">起始年月</label>
+                        <input type="month" id="cal-start-month" class="input-field mono" style="margin-top:4px; margin-bottom:0; padding:6px 8px;" onchange="window.refreshSimulatorPreview()">
+                    </div>
+                </div>
+
+                <div>
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <span style="font-size:0.78rem; color:var(--text-muted); font-weight:700;">預設標記固定配送星期 (點擊切換，日曆格內印出 ● 圓點)</span>
+                    </div>
+                    <div class="weekday-selector" id="weekday-selector">
+                        <button class="wd-btn" onclick="window.toggleDeliveryWeekday(0, this)">日</button>
+                        <button class="wd-btn" onclick="window.toggleDeliveryWeekday(1, this)">一</button>
+                        <button class="wd-btn" onclick="window.toggleDeliveryWeekday(2, this)">二</button>
+                        <button class="wd-btn" onclick="window.toggleDeliveryWeekday(3, this)">三</button>
+                        <button class="wd-btn" onclick="window.toggleDeliveryWeekday(4, this)">四</button>
+                        <button class="wd-btn" onclick="window.toggleDeliveryWeekday(5, this)">五</button>
+                        <button class="wd-btn" onclick="window.toggleDeliveryWeekday(6, this)">六</button>
+                    </div>
+                </div>
+
+                <!-- 國泰世華銀行 (013) 專屬表格資料設定 -->
+                <div class="cathay-config-box">
+                    <div class="cathay-title">
+                        <span>🏦 國泰世華銀行 (013) 匯款表格資料</span>
+                        <label style="display:flex; align-items:center; gap:4px; font-size:0.78rem; cursor:pointer;">
+                            <input type="checkbox" id="chk-cathay-table" checked style="width:16px; height:16px; accent-color:#009944;" onchange="window.refreshSimulatorPreview()">
+                            附印匯款框
+                        </label>
+                    </div>
+                    <div style="display:flex; gap:8px;">
+                        <div style="flex:1;">
+                            <label style="font-size:0.72rem; color:#007030; font-weight:700;">銀行與分行代碼</label>
+                            <input type="text" id="cathay-bank-name" class="input-field" style="margin-bottom:6px; padding:6px 8px; font-size:0.85rem;" value="013 國泰世華銀行" onchange="window.saveBankConfig()">
+                        </div>
+                        <div style="flex:1;">
+                            <label style="font-size:0.72rem; color:#007030; font-weight:700;">戶名</label>
+                            <input type="text" id="cathay-acc-name" class="input-field" style="margin-bottom:6px; padding:6px 8px; font-size:0.85rem;" value="邱順群 (五寮尖山羊乳)" onchange="window.saveBankConfig()">
+                        </div>
+                    </div>
+                    <div>
+                        <label style="font-size:0.72rem; color:#007030; font-weight:700;">國泰世華匯款帳號 (JetBrains Mono 等寬排版)</label>
+                        <input type="text" id="cathay-acc-no" class="input-field mono" style="margin-bottom:4px; padding:6px 8px; font-size:0.9rem; font-weight:700;" value="000-00-000000-0" placeholder="請輸入國泰世華帳號" onchange="window.saveBankConfig()">
+                    </div>
+                    <div>
+                        <label style="font-size:0.72rem; color:#007030; font-weight:700;">表格備註 / 結帳說明</label>
+                        <input type="text" id="cathay-note" class="input-field" style="margin-bottom:0; padding:6px 8px; font-size:0.82rem;" value="匯款後請告知末五碼，感謝您的支持！" onchange="window.saveBankConfig()">
+                    </div>
+                </div>
+
+                <div style="display:flex; gap:8px; margin-top:4px;">
+                    <button class="btn-outline" style="flex:1; padding:9px;" onclick="window.refreshSimulatorPreview()">🔄 刷新尺規預覽</button>
+                    <button class="btn-confirm" style="flex:1; padding:9px;" onclick="window.printTestReceipt()">🖨️ 測試出單 (含目前設定)</button>
+                </div>
+            </div>
+
+            <div class="section-title">📏 58mm 紙卷模擬 (5mm 出血 + 直式 mm 尺規)</div>
+            <div style="margin: 0 15px 15px;" class="print-simulator-wrap">
+                <div class="sim-legend">
+                    <span><span class="sim-legend-box" style="background:#f5f5f0; border:1px solid #999;"></span>直式尺規 (mm)</span>
+                    <span><span class="sim-legend-box" style="background:rgba(255,59,48,0.25); border:1px dashed #ff3b30;"></span>5mm 模擬出血區</span>
+                    <span><span class="sim-legend-box" style="background:#fff; border:1px solid #ccc;"></span>48mm 有效列印 (384 dots)</span>
+                </div>
+                <div class="ruler-and-paper">
+                    <canvas id="mm-ruler-canvas"></canvas>
+                    <div class="paper-58mm-stage" id="paper-stage">
+                        <div class="bleed-zone left" id="bleed-left"><span class="bleed-tag">5mm BLEED</span></div>
+                        <div style="position:relative;">
+                            <div class="bleed-top-bottom-overlay top" id="bleed-top"></div>
+                            <canvas id="receipt-preview-canvas"></canvas>
+                            <div class="bleed-top-bottom-overlay bottom" id="bleed-bottom"></div>
+                        </div>
+                        <div class="bleed-zone right" id="bleed-right"><span class="bleed-tag">5mm BLEED</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div id="admin-venues" class="admin-section">
+            <div class="section-title" style="display:flex; justify-content:space-between; align-items:center;">
+                <span>已建立的場地</span>
+                <button class="btn-outline" onclick="window.openVenueEditor()">➕ 新增場地</button>
+            </div>
+            <div id="venue-list"></div>
+        </div>
+
+        <div id="admin-products" class="admin-section">
+            <div class="section-title" style="display:flex; justify-content:space-between; align-items:center;">
+                <span>全部商品設定</span>
+                <button class="btn-outline" onclick="window.openProductEditor()">➕ 新增商品</button>
+            </div>
+            <div style="padding: 0 15px 10px; font-size: 0.8rem; color: var(--text-muted);">
+                點擊「編輯」可設定排號，數字越小排越左上角。
+            </div>
+            <div id="product-list"></div>
+        </div>
+    </div>
+
+    <!-- 底部導航列 -->
+    <div class="bottom-nav">
+        <div class="nav-item active" onclick="window.switchTab('pos', this)"><div class="nav-icon">🛒</div>結帳</div>
+        <div class="nav-item" onclick="window.switchTab('history', this)"><div class="nav-icon">📋</div>紀錄</div>
+        <div class="nav-item" onclick="window.switchTab('stats', this)"><div class="nav-icon">📊</div>報表</div>
+        <div class="nav-item" onclick="window.switchTab('settings', this)"><div class="nav-icon">🖨️</div>外派/出單</div>
+    </div>
+
+    <!-- 折扣視窗 -->
+    <div class="modal-overlay" id="discount-modal">
+        <div class="modal-box">
+            <div class="modal-title">設定本單折扣</div>
+            <div class="discount-grid">
+                <button class="btn-discount-preset" onclick="window.setDiscountPreset(10)">10</button>
+                <button class="btn-discount-preset" onclick="window.setDiscountPreset(20)">20</button>
+                <button class="btn-discount-preset" onclick="window.setDiscountPreset(30)">30</button>
+                <button class="btn-discount-preset" onclick="window.setDiscountPreset(50)">50</button>
+            </div>
+            <input type="number" id="discount-input-field" class="input-field mono" style="text-align:center; font-size:1.2rem;" placeholder="或手動輸入金額" inputmode="numeric">
+            <div class="modal-actions">
+                <button class="btn-cancel" onclick="window.closeModal('discount-modal'); window.setDiscountPreset(0)">清除折扣</button>
+                <button class="btn-confirm" onclick="window.confirmDiscount()">確定</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 場地編輯視窗 -->
+    <div class="modal-overlay" id="venue-modal">
+        <div class="modal-box" style="height: 85dvh;">
+            <div class="modal-title" id="ve-title">場地模組設定</div>
+            <input type="text" id="ve-name" class="input-field" placeholder="輸入場地名稱 (如：北投站)">
+            <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 5px;">勾選販售商品並設定專屬售價：</div>
+            <div class="venue-editor-list" id="ve-products"></div>
+            <div class="modal-actions">
+                <button class="btn-cancel" onclick="window.closeModal('venue-modal')">取消</button>
+                <button class="btn-confirm" onclick="window.saveVenue()">儲存</button>
+            </div>
+            <input type="hidden" id="ve-id">
+        </div>
+    </div>
+
+    <!-- 商品庫編輯視窗 -->
+    <div class="modal-overlay" id="product-modal">
+        <div class="modal-box">
+            <div class="modal-title" id="pe-title">商品設定</div>
+            <div style="display:flex; gap:10px;">
+                <div style="flex:2;">
+                    <label style="font-size:0.8rem; color:var(--text-muted);">商品名稱</label>
+                    <input type="text" id="pe-name" class="input-field" placeholder="特大羊奶">
+                </div>
+                <div style="flex:1;">
+                    <label style="font-size:0.8rem; color:var(--text-muted);">排號 (越小越前)</label>
+                    <input type="number" id="pe-sort" class="input-field mono" inputmode="numeric">
+                </div>
+            </div>
+            
+            <label style="font-size:0.8rem; color:var(--text-muted);">顏色分類</label>
+            <select id="pe-cat" class="input-field">
+                <option value="cat-milk">藍色 (羊奶)</option>
+                <option value="cat-yogurt">橘色 (優酪乳/奶酪)</option>
+                <option value="cat-bun">綠色 (饅頭)</option>
+            </select>
+            
+            <div style="display:flex; gap:10px;">
+                <div style="flex:1;">
+                    <label style="font-size:0.8rem; color:var(--text-muted);">預設售價 ($)</label>
+                    <input type="number" id="pe-price" class="input-field mono" inputmode="numeric">
+                </div>
+                <div style="flex:1;">
+                    <label style="font-size:0.8rem; color:var(--text-muted);">成本 ($)</label>
+                    <input type="number" id="pe-cost" class="input-field mono" inputmode="numeric">
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-cancel" onclick="window.closeModal('product-modal')">取消</button>
+                <button class="btn-confirm" onclick="window.saveProduct()">儲存</button>
+            </div>
+            <input type="hidden" id="pe-id">
+        </div>
+    </div>
+
+    <!-- 訂單修改與重印視窗 -->
+    <div class="modal-overlay" id="edit-order-modal">
+        <div class="modal-box">
+            <div class="modal-title">修改訂單 / 補印收據</div>
+            <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 10px;" id="eo-items"></div>
+            
+            <label style="font-size:0.8rem; color:var(--text-muted);">折扣金額 ($)</label>
+            <input type="number" id="eo-discount" class="input-field mono" inputmode="numeric">
+            
+            <label style="font-size:0.8rem; color:var(--text-muted);">修改客群標籤 (選填)</label>
+            <div class="tags-group" id="eo-tags-type" style="margin-bottom: 5px;">
+                <button class="chip" onclick="window.toggleTagInEdit('type', '首次購買', this)">🆕 首次</button>
+                <button class="chip" onclick="window.toggleTagInEdit('type', '回購客', this)">🔄 回購</button>
+            </div>
+            <div class="tags-group" id="eo-tags-demo">
+                <button class="chip" onclick="window.toggleTagInEdit('demo', '長輩', this)">👴 長輩</button>
+                <button class="chip" onclick="window.toggleTagInEdit('demo', '夫婦', this)">👫 夫婦</button>
+                <button class="chip" onclick="window.toggleTagInEdit('demo', '新手爸媽', this)">👶 新手爸媽</button>
+                <button class="chip" onclick="window.toggleTagInEdit('demo', '學生', this)">🎓 學生</button>
+                <button class="chip" onclick="window.toggleTagInEdit('demo', '情侶', this)">💕 情侶</button>
+            </div>
+
+            <div style="display:flex; gap:8px; margin-top:10px;">
+                <button class="btn-outline" style="flex:1; padding:10px;" onclick="window.reprintOrderFromModal(false)">🖨️ 一般補印</button>
+                <button class="btn-outline" style="flex:1; padding:10px; border-color:#15803d; color:#15803d;" onclick="window.reprintOrderFromModal(true)">📅 含月結日曆補印</button>
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn-cancel" onclick="window.closeModal('edit-order-modal')">取消</button>
+                <button class="btn-confirm" onclick="window.saveOrderEdit()">儲存修改</button>
+            </div>
+            <input type="hidden" id="eo-id">
+        </div>
+    </div>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
+    import { getDatabase, ref, set, get, onValue, push, remove, update } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyB6D9vh6J2mdnjz2VXEVe99oi7oLF-irFo",
+      authDomain: "crm-ts-1225-001.firebaseapp.com",
+      databaseURL: "https://crm-ts-1225-001-default-rtdb.firebaseio.com",
+      projectId: "crm-ts-1225-001",
+      storageBucket: "crm-ts-1225-001.firebasestorage.app",
+      messagingSenderId: "925760221722",
+      appId: "1:925760221722:web:1aeda0b82f1f16b8dcd7a3"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    const dbRefs = { catalog: ref(db, 'masterCatalog'), venues: ref(db, 'venues'), orders: ref(db, 'orders') };
+
+    const initDefaultCatalog = {
+        'p1': { id: 'p1', cat: 'cat-milk', name: '大羊奶', defPrice: 180, cost: 100, sortOrder: 1 },
+        'p2': { id: 'p2', cat: 'cat-milk', name: '中羊奶', defPrice: 100, cost: 55, sortOrder: 2 },
+        'p3': { id: 'p3', cat: 'cat-yogurt', name: '大優酪', defPrice: 360, cost: 200, sortOrder: 3 },
+        'p4': { id: 'p4', cat: 'cat-yogurt', name: '小優酪', defPrice: 120, cost: 65, sortOrder: 4 },
+        'p5': { id: 'p5', cat: 'cat-yogurt', name: '奶酪', defPrice: 50, cost: 25, sortOrder: 5 },
+        'p6': { id: 'p6', cat: 'cat-bun', name: '白饅頭', defPrice: 100, cost: 50, sortOrder: 6 },
+        'p7': { id: 'p7', cat: 'cat-bun', name: '黑饅頭', defPrice: 100, cost: 50, sortOrder: 7 },
+        'p8': { id: 'p8', cat: 'cat-bun', name: '桂核(1)', defPrice: 40, cost: 20, sortOrder: 8 },
+        'p9': { id: 'p9', cat: 'cat-bun', name: '桂核(4)', defPrice: 150, cost: 75, sortOrder: 9 }
+    };
+
+    const initDefaultVenues = {
+        'v_beitou': { name: '點點綠-北投', items: { 'p1':180, 'p2':100, 'p3':360, 'p4':120, 'p5':50, 'p6':100, 'p7':100, 'p8':40, 'p9':150 } },
+        'v_shipai': { name: '點點綠-石牌', items: { 'p1':180, 'p2':100, 'p3':360, 'p4':120, 'p5':50, 'p6':100, 'p7':100, 'p8':40, 'p9':150 } },
+        'v_shuanglian': { name: '點點綠-雙連', items: { 'p1':180, 'p2':100, 'p3':360, 'p4':120, 'p5':50, 'p6':100, 'p7':100, 'p8':40, 'p9':150 } },
+        'v_shilin': { name: '點點綠-士林', items: { 'p1':180, 'p2':100, 'p3':360, 'p4':120, 'p5':50, 'p6':100, 'p7':100, 'p8':40, 'p9':150 } },
+        'v_hope': { name: '希望廣場', items: { 'p1':180, 'p2':100, 'p3':360, 'p4':120, 'p5':50, 'p6':100, 'p7':100, 'p8':40, 'p9':150 } },
+        'v_expo': { name: '圓山花博', items: { 'p1':180, 'p2':100, 'p3':360, 'p4':120, 'p5':50, 'p6':100, 'p7':100, 'p8':40, 'p9':150 } }
+    };
+
+    let globalCatalog = {}; let globalVenues = {}; let globalOrders = {}; 
+    let currentVenueId = ''; let currentVenueProducts = []; 
+    let cart = {}; let currentDiscount = 0;
+    
+    window.selectedTags = { type: '', demo: '' };
+    window.editTags = { type: '', demo: '' };
+    window.statMode = 'daily';
+
+    // =========================================================================
+    // 藍牙 ESC/POS 出單、月結日曆卡牌 (1~2個月) 與 國泰世華銀行表格設定
+    // =========================================================================
+    const DPMM = 8; // 203 DPI 熱感應印表機標準：1mm = 8 dots
+    const PAPER_MM = 58; // 紙張總寬 58mm
+    const BLEED_MM = 5;  // 模擬出血 5mm (左右上底皆為 5mm)
+    const PRINTABLE_MM = PAPER_MM - (BLEED_MM * 2); // 48mm 實際安全列印寬度
+    const PRINTABLE_DOTS = PRINTABLE_MM * DPMM;     // 384 dots (標準 58mm 印字頭寬度)
+    const BLEED_DOTS = BLEED_MM * DPMM;             // 40 dots (5mm 出血像素)
+    const PREVIEW_SCALE = 0.65; // 螢幕預覽縮放比
+
+    let btDevice = null;
+    let btCharacteristic = null;
+    let btPacketSize = 240; // 預設支援 120, 240, 320, 480 Bytes
+    let autoPrintEnabled = true;
+
+    // 月結日曆卡牌狀態
+    let calendarCardEnabled = false;
+    let calendarMonthsCount = 1; // 1 或 2 個月
+    let selectedDeliveryWeekdays = new Set(); // 0(日) ~ 6(六)
+
+    const BT_SERVICE_UUIDS = [
+        '000018f0-0000-1000-8000-00805f9b34fb',
+        '0000ff00-0000-1000-8000-00805f9b34fb',
+        '49535343-fe7d-4ae5-8fa9-9fafd205e455',
+        'e7810a71-73ae-499d-8c15-faa9aef0c3f2',
+        '0000ffe0-0000-1000-8000-00805f9b34fb'
+    ];
+
+    // 讀取與儲存本機國泰世華銀行設定
+    function loadBankConfig() {
+        try {
+            const saved = JSON.parse(localStorage.getItem('goat_pos_cathay_cfg') || '{}');
+            if (saved.bankName) document.getElementById('cathay-bank-name').value = saved.bankName;
+            if (saved.accName) document.getElementById('cathay-acc-name').value = saved.accName;
+            if (saved.accNo) document.getElementById('cathay-acc-no').value = saved.accNo;
+            if (saved.note) document.getElementById('cathay-note').value = saved.note;
+        } catch(e) {}
+    }
+
+    window.saveBankConfig = function() {
+        const cfg = {
+            bankName: document.getElementById('cathay-bank-name').value.trim(),
+            accName: document.getElementById('cathay-acc-name').value.trim(),
+            accNo: document.getElementById('cathay-acc-no').value.trim(),
+            note: document.getElementById('cathay-note').value.trim()
+        };
+        localStorage.setItem('goat_pos_cathay_cfg', JSON.stringify(cfg));
+        window.refreshSimulatorPreview();
+    };
+
+    // 同步結帳頁與設定頁的「啟用月結日曆卡」開關
+    window.syncCalendarToggle = function(checked) {
+        calendarCardEnabled = checked;
+        document.getElementById('pos-chk-calendar').checked = checked;
+        document.getElementById('admin-chk-calendar').checked = checked;
+        document.getElementById('pos-cal-pills').classList.toggle('show', checked);
+        window.refreshSimulatorPreview();
+    };
+
+    // 切換 1 個月或 2 個月日曆
+    window.setCalendarMonths = function(months) {
+        calendarMonthsCount = months;
+        document.getElementById('pos-pill-1m').classList.toggle('active', months === 1);
+        document.getElementById('pos-pill-2m').classList.toggle('active', months === 2);
+        document.getElementById('admin-pill-1m').classList.toggle('active', months === 1);
+        document.getElementById('admin-pill-2m').classList.toggle('active', months === 2);
+        window.refreshSimulatorPreview();
+    };
+
+    // 切換固定配送星期標記
+    window.toggleDeliveryWeekday = function(dayIdx, btnEl) {
+        if (selectedDeliveryWeekdays.has(dayIdx)) {
+            selectedDeliveryWeekdays.delete(dayIdx);
+            btnEl.classList.remove('active');
+        } else {
+            selectedDeliveryWeekdays.add(dayIdx);
+            btnEl.classList.add('active');
+        }
+        window.refreshSimulatorPreview();
+    };
+
+    window.setPacketSize = function(size) {
+        btPacketSize = size;
+        document.getElementById('packet-size-label').innerText = `目前：${size} Bytes`;
+        document.querySelectorAll('#packet-size-group .packet-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.innerText.includes(String(size)));
+        });
+        window.refreshSimulatorPreview();
+    };
+
+    window.toggleAutoPrint = function(checked) {
+        autoPrintEnabled = checked;
+    };
+
+    window.handleHeaderBtClick = function() {
+        if (btCharacteristic) {
+            const navItems = document.querySelectorAll('.bottom-nav .nav-item');
+            window.switchTab('settings', navItems[3]);
+            window.switchAdminTab('printer');
+        } else {
+            window.connectBluetoothPrinter();
+        }
+    };
+
+    window.connectBluetoothPrinter = async function() {
+        if (!navigator.bluetooth) {
+            alert('此瀏覽器不支援 Web Bluetooth！\nAndroid 請使用 Chrome；iOS 請使用 Bluefy 瀏覽器。');
+            return;
+        }
+        try {
+            btDevice = await navigator.bluetooth.requestDevice({
+                acceptAllDevices: true,
+                optionalServices: BT_SERVICE_UUIDS
+            });
+            btDevice.addEventListener('gattserverdisconnected', window.onBtDisconnected);
+            const server = await btDevice.gatt.connect();
+            const services = await server.getPrimaryServices();
+            
+            let foundChar = null;
+            for (const service of services) {
+                const chars = await service.getCharacteristics();
+                for (const c of chars) {
+                    if (c.properties.write || c.properties.writeWithoutResponse) {
+                        foundChar = c;
+                        break;
+                    }
+                }
+                if (foundChar) break;
+            }
+
+            if (!foundChar) throw new Error('找不到可寫入的藍牙列印特徵值 (Characteristic)');
+            btCharacteristic = foundChar;
+            updateBtUI(true, btDevice.name || '藍牙出單機');
+        } catch (err) {
+            if (err.name !== 'NotFoundError') {
+                alert('藍牙連線失敗：' + err.message);
+            }
+        }
+    };
+
+    window.disconnectBluetoothPrinter = function() {
+        if (btDevice && btDevice.gatt.connected) {
+            btDevice.gatt.disconnect();
+        }
+        window.onBtDisconnected();
+    };
+
+    window.onBtDisconnected = function() {
+        btCharacteristic = null;
+        updateBtUI(false, '尚未連線');
+    };
+
+    function updateBtUI(connected, name) {
+        const badge = document.getElementById('header-bt-btn');
+        const badgeTxt = document.getElementById('header-bt-text');
+        const devName = document.getElementById('bt-device-name');
+        const btnConn = document.getElementById('btn-bt-connect');
+        const btnDisc = document.getElementById('btn-bt-disconnect');
+
+        if (connected) {
+            badge.classList.add('connected');
+            badgeTxt.innerText = name.length > 6 ? name.substring(0, 6) + '..' : name;
+            devName.innerText = `狀態：已連線 (${name}) | 封包 ${btPacketSize}B`;
+            btnConn.style.display = 'none';
+            btnDisc.style.display = 'inline-block';
+        } else {
+            badge.classList.remove('connected');
+            badgeTxt.innerText = '藍牙未連';
+            devName.innerText = '狀態：尚未連線';
+            btnConn.style.display = 'inline-block';
+            btnDisc.style.display = 'none';
+        }
+    }
+
+    // 繪製直式 mm 尺規 (1mm = 8 dots)
+    function drawVerticalMmRuler(totalHeightDots) {
+        const rulerCanvas = document.getElementById('mm-ruler-canvas');
+        const totalMm = Math.ceil(totalHeightDots / DPMM);
+        const rulerWidthPx = 42;
+        rulerCanvas.width = rulerWidthPx;
+        rulerCanvas.height = totalHeightDots;
+        rulerCanvas.style.width = (rulerWidthPx * PREVIEW_SCALE) + 'px';
+        rulerCanvas.style.height = (totalHeightDots * PREVIEW_SCALE) + 'px';
+
+        const ctx = rulerCanvas.getContext('2d');
+        ctx.fillStyle = '#f5f5f0';
+        ctx.fillRect(0, 0, rulerWidthPx, totalHeightDots);
+
+        ctx.fillStyle = 'rgba(255, 59, 48, 0.15)';
+        ctx.fillRect(0, 0, rulerWidthPx, BLEED_DOTS);
+        ctx.fillRect(0, totalHeightDots - BLEED_DOTS, rulerWidthPx, BLEED_DOTS);
+
+        ctx.strokeStyle = '#333333';
+        ctx.fillStyle = '#1c1c1e';
+        ctx.font = '700 12px "JetBrains Mono", monospace';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+
+        for (let mm = 0; mm <= totalMm; mm++) {
+            const y = mm * DPMM;
+            ctx.beginPath();
+            if (mm % 10 === 0) {
+                ctx.lineWidth = 2;
+                ctx.moveTo(rulerWidthPx - 14, y);
+                ctx.lineTo(rulerWidthPx, y);
+                if (mm > 0 && y < totalHeightDots - 8) {
+                    ctx.fillText(`${mm}`, rulerWidthPx - 16, y);
+                } else if (mm === 0) {
+                    ctx.fillText('0mm', rulerWidthPx - 15, 10);
+                }
+            } else if (mm % 5 === 0) {
+                ctx.lineWidth = 1.5;
+                ctx.moveTo(rulerWidthPx - 9, y);
+                ctx.lineTo(rulerWidthPx, y);
+            } else {
+                ctx.lineWidth = 1;
+                ctx.moveTo(rulerWidthPx - 5, y);
+                ctx.lineTo(rulerWidthPx, y);
+            }
+            ctx.stroke();
+        }
+    }
+
+    // 計算單一月份的日曆資訊 (行數、第一天星期幾、總天數)
+    function getMonthGridMetrics(year, monthIndex0) {
+        const firstDayWeek = new Date(year, monthIndex0, 1).getDay(); // 0(日)~6(六)
+        const daysInMonth = new Date(year, monthIndex0 + 1, 0).getDate();
+        const rows = Math.ceil((firstDayWeek + daysInMonth) / 7);
+        return { year, month: monthIndex0 + 1, firstDayWeek, daysInMonth, rows };
+    }
+
+    // 在 Canvas 上繪製單個月結日曆卡網格 (384 dots 寬)
+    function drawSingleMonthCalendarGrid(ctx, startY, metrics) {
+        const { year, month, firstDayWeek, daysInMonth, rows } = metrics;
+        const gridLeft = 2;
+        const gridWidth = 378; // 7 欄 * 54 dots = 378 dots
+        const colW = 54;
+        const titleH = 32;
+        const weekHeaderH = 26;
+        const cellH = 44;
+
+        let y = startY;
+
+        // 1. 月份黑底反白標題列
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(gridLeft, y, gridWidth, titleH);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = '800 18px "M PLUS Rounded 1c", "Microsoft JhengHei", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`📅 ${year} 年 ${month < 10 ? '0'+month : month} 月 配送/取貨日曆卡`, gridLeft + gridWidth / 2, y + titleH / 2);
+        y += titleH;
+
+        // 2. 星期表頭 (日 ~ 六)
+        const weekNames = ['日', '一', '二', '三', '四', '五', '六'];
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(gridLeft, y, gridWidth, weekHeaderH);
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(gridLeft, y, gridWidth, weekHeaderH);
+
+        ctx.fillStyle = '#000000';
+        ctx.font = '800 15px "M PLUS Rounded 1c", "Microsoft JhengHei", sans-serif';
+        for (let d = 0; d < 7; d++) {
+            const cx = gridLeft + d * colW + colW / 2;
+            ctx.fillText(weekNames[d], cx, y + weekHeaderH / 2 + 1);
+            if (d > 0) {
+                ctx.beginPath();
+                ctx.moveTo(gridLeft + d * colW, y);
+                ctx.lineTo(gridLeft + d * colW, y + weekHeaderH);
+                ctx.stroke();
+            }
+        }
+        y += weekHeaderH;
+
+        // 3. 日期方格 (JetBrains Mono 日期數字 + 下方打勾/配送圓點區)
+        for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < 7; c++) {
+                const cellX = gridLeft + c * colW;
+                const cellY = y + r * cellH;
+                const cellIndex = r * 7 + c;
+                const dayNum = cellIndex - firstDayWeek + 1;
+
+                ctx.strokeStyle = '#000000';
+                ctx.lineWidth = 1.2;
+                ctx.strokeRect(cellX, cellY, colW, cellH);
+
+                if (dayNum >= 1 && dayNum <= daysInMonth) {
+                    // 左上角日期數字 (JetBrains Mono)
+                    ctx.fillStyle = '#000000';
+                    ctx.font = '800 14px "JetBrains Mono", monospace';
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'top';
+                    ctx.fillText(String(dayNum), cellX + 4, cellY + 3);
+
+                    // 若此星期被勾選為固定配送日，於格子下方中央印出實心標記圓點 ● 與核對框
+                    if (selectedDeliveryWeekdays.has(c)) {
+                        ctx.font = '700 14px "JetBrains Mono", monospace';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'bottom';
+                        ctx.fillText('● [  ]', cellX + colW / 2, cellY + cellH - 3);
+                    }
+                } else {
+                    // 非本月空白格畫淡斜線
+                    ctx.save();
+                    ctx.strokeStyle = '#000000';
+                    ctx.lineWidth = 0.8;
+                    ctx.setLineDash([2, 4]);
+                    ctx.beginPath();
+                    ctx.moveTo(cellX + 4, cellY + cellH - 4);
+                    ctx.lineTo(cellX + colW - 4, cellY + 4);
+                    ctx.stroke();
+                    ctx.restore();
+                }
+            }
+        }
+
+        ctx.textBaseline = 'alphabetic'; // 還原預設 baseline
+        return y + rows * cellH + 14;
+    }
+
+    // 在 Canvas 上繪製「國泰世華銀行 (013) 月結匯款表格」
+    function drawCathayBankTable(ctx, startY, totalAmount) {
+        const boxLeft = 2;
+        const boxWidth = 380;
+        let y = startY;
+
+        const bankName = (document.getElementById('cathay-bank-name')?.value || '013 國泰世華銀行').trim();
+        const accName = (document.getElementById('cathay-acc-name')?.value || '邱順群 (五寮尖山羊乳)').trim();
+        const accNo = (document.getElementById('cathay-acc-no')?.value || '000-00-000000-0').trim();
+        const note = (document.getElementById('cathay-note')?.value || '匯款後請告知末五碼，感謝支持！').trim();
+
+        // 表格標題黑框
+        const headerH = 30;
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(boxLeft, y, boxWidth, headerH);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = '800 17px "M PLUS Rounded 1c", "Microsoft JhengHei", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('🏦 按月結帳 · 銀行匯款資訊表', boxLeft + boxWidth / 2, y + headerH / 2);
+        y += headerH;
+
+        const rowH = 32;
+        const labelColW = 104;
+        const rowsData = [
+            { label: '銀行代號', val: bankName, isMono: false, bold: true },
+            { label: '匯款帳號', val: accNo, isMono: true, bold: true },
+            { label: '帳戶戶名', val: accName, isMono: false, bold: true },
+            { label: '應付總額', val: `NT$ ${totalAmount}   (末五碼:          )`, isMono: true, bold: true }
+        ];
+
+        ctx.textBaseline = 'middle';
+        rowsData.forEach(row => {
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 1.5;
+            ctx.strokeRect(boxLeft, y, boxWidth, rowH);
+
+            // 左欄分隔線
+            ctx.beginPath();
+            ctx.moveTo(boxLeft + labelColW, y);
+            ctx.lineTo(boxLeft + labelColW, y + rowH);
+            ctx.stroke();
+
+            // 欄位名稱
+            ctx.fillStyle = '#000000';
+            ctx.font = '800 15px "M PLUS Rounded 1c", "Microsoft JhengHei", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(row.label, boxLeft + labelColW / 2, y + rowH / 2 + 1);
+
+            // 欄位數值
+            if (row.isMono) {
+                ctx.font = '800 16px "JetBrains Mono", monospace';
+            } else {
+                ctx.font = '700 15px "M PLUS Rounded 1c", "Microsoft JhengHei", sans-serif';
+            }
+            ctx.textAlign = 'left';
+            ctx.fillText(row.val, boxLeft + labelColW + 8, y + rowH / 2 + 1);
+
+            y += rowH;
+        });
+
+        // 底部備註欄
+        const noteH = 28;
+        ctx.strokeRect(boxLeft, y, boxWidth, noteH);
+        ctx.font = '700 13px "M PLUS Rounded 1c", "Microsoft JhengHei", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(note, boxLeft + boxWidth / 2, y + noteH / 2 + 1);
+        y += noteH + 14;
+
+        ctx.textBaseline = 'alphabetic';
+        return y;
+    }
+
+    // 繪製完整 58mm 收據至 Canvas (含上下 5mm 出血留白、日曆卡牌與國泰世華匯款表)
+    async function renderReceiptToCanvas(orderObj) {
+        if (document.fonts && document.fonts.ready) {
+            await document.fonts.ready;
+        }
+        const canvas = document.getElementById('receipt-preview-canvas');
+        const ctx = canvas.getContext('2d');
+
+        const headerTitle = (document.getElementById('receipt-header-input')?.value || '五寮尖山羊乳 · 咩味時刻').trim();
+        const itemEntries = Object.values(orderObj.cartData || {});
+
+        // 判斷本單是否啟用月結日曆卡牌
+        const useCalendar = orderObj.printCalendar !== undefined ? orderObj.printCalendar : calendarCardEnabled;
+        const calMonths = orderObj.calendarMonths || calendarMonthsCount;
+        const useCathayTable = document.getElementById('chk-cathay-table')?.checked !== false;
+
+        // 解析日曆起始年月
+        const monthInputVal = document.getElementById('cal-start-month')?.value || (orderObj.dateStr || window.globalDateStr).substring(0, 7);
+        const [startYear, startMonth1] = monthInputVal.split('-').map(Number);
+        const monthMetricsList = [];
+
+        if (useCalendar) {
+            for (let m = 0; m < calMonths; m++) {
+                const targetDate = new Date(startYear, (startMonth1 - 1) + m, 1);
+                monthMetricsList.push(getMonthGridMetrics(targetDate.getFullYear(), targetDate.getMonth()));
+            }
+        }
+
+        // 計算日曆與國泰世華銀行表格所需額外高度 (dots)
+        let extraCalendarDots = 0;
+        if (useCalendar) {
+            extraCalendarDots += 36; // 月結卡區塊分隔與簽收欄
+            monthMetricsList.forEach(m => {
+                extraCalendarDots += (32 + 26 + m.rows * 44 + 14);
+            });
+            if (useCathayTable) {
+                extraCalendarDots += (30 + 4 * 32 + 28 + 18);
+            }
+        }
+
+        const baseHeightDots = BLEED_DOTS + 195 + (itemEntries.length * 46) + (orderObj.discount > 0 ? 36 : 0) + extraCalendarDots + 125 + BLEED_DOTS;
+        const alignedHeightDots = Math.ceil(baseHeightDots / 8) * 8;
+
+        canvas.width = PRINTABLE_DOTS; // 384 dots (48mm)
+        canvas.height = alignedHeightDots;
+
+        // 同步設定預覽舞台的 CSS 縮放與 5mm 出血寬度
+        canvas.style.width = (PRINTABLE_DOTS * PREVIEW_SCALE) + 'px';
+        canvas.style.height = (alignedHeightDots * PREVIEW_SCALE) + 'px';
+        
+        const bleedPx = (BLEED_DOTS * PREVIEW_SCALE) + 'px';
+        document.getElementById('bleed-left').style.width = bleedPx;
+        document.getElementById('bleed-right').style.width = bleedPx;
+        document.getElementById('bleed-top').style.height = bleedPx;
+        document.getElementById('bleed-bottom').style.height = bleedPx;
+
+        // 白底填充
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#000000';
+        ctx.strokeStyle = '#000000';
+
+        let y = BLEED_DOTS + 24;
+
+        // 1. 店名抬頭
+        ctx.font = '800 25px "M PLUS Rounded 1c", "Microsoft JhengHei", -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(headerTitle, PRINTABLE_DOTS / 2, y);
+        y += 34;
+
+        // 2. 場地與時間
+        ctx.font = '700 18px "M PLUS Rounded 1c", "Microsoft JhengHei", sans-serif';
+        ctx.fillText(`場地：${orderObj.module || '現場結帳'}${useCalendar ? ' (月結單)' : ''}`, PRINTABLE_DOTS / 2, y);
+        y += 26;
+
+        ctx.font = '500 16px "JetBrains Mono", monospace';
+        ctx.fillText(`${orderObj.dateStr} ${orderObj.time}`, PRINTABLE_DOTS / 2, y);
+        y += 18;
+
+        drawDashedLine(ctx, y);
+        y += 28;
+
+        // 3. 表頭欄位
+        ctx.font = '700 18px "M PLUS Rounded 1c", "Microsoft JhengHei", sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText('品項', 4, y);
+        ctx.textAlign = 'center';
+        ctx.fillText('數量', 235, y);
+        ctx.textAlign = 'right';
+        ctx.fillText('小計', PRINTABLE_DOTS - 4, y);
+        y += 14;
+
+        drawSolidLine(ctx, y, 1.5);
+        y += 28;
+
+        // 4. 商品明細列表
+        itemEntries.forEach(c => {
+            const name = c.item?.name || '商品';
+            const qty = c.qty || 1;
+            const price = c.item?.price || 0;
+            const sub = price * qty;
+
+            ctx.font = '700 20px "M PLUS Rounded 1c", "Microsoft JhengHei", sans-serif';
+            ctx.textAlign = 'left';
+            ctx.fillText(name, 4, y);
+
+            ctx.font = '700 20px "JetBrains Mono", monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText(`x${qty}`, 235, y);
+
+            ctx.textAlign = 'right';
+            ctx.fillText(`$${sub}`, PRINTABLE_DOTS - 4, y);
+            y += 44;
+        });
+
+        drawDashedLine(ctx, y - 12);
+        y += 18;
+
+        // 5. 折扣與總計金額
+        if (orderObj.discount > 0) {
+            ctx.font = '700 18px "M PLUS Rounded 1c", "Microsoft JhengHei", sans-serif';
+            ctx.textAlign = 'left';
+            ctx.fillText('本單折扣', 4, y);
+            ctx.font = '700 19px "JetBrains Mono", monospace';
+            ctx.textAlign = 'right';
+            ctx.fillText(`-$${orderObj.discount}`, PRINTABLE_DOTS - 4, y);
+            y += 34;
+        }
+
+        ctx.font = '800 24px "M PLUS Rounded 1c", "Microsoft JhengHei", sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(useCalendar ? '月結總計 NT$' : '總計 NT$', 4, y);
+
+        ctx.font = '800 28px "JetBrains Mono", monospace';
+        ctx.textAlign = 'right';
+        ctx.fillText(`$${orderObj.revenue}`, PRINTABLE_DOTS - 4, y);
+        y += 20;
+
+        drawSolidLine(ctx, y, 2);
+        y += 16;
+
+        // 6. 若啟用「按月結帳日曆卡牌 (1~2個月)」，繪製日曆網格與國泰世華銀行匯款表
+        if (useCalendar) {
+            ctx.font = '700 15px "M PLUS Rounded 1c", "Microsoft JhengHei", sans-serif';
+            ctx.textAlign = 'left';
+            ctx.fillText('訂戶姓名/電話：______________________', 4, y + 14);
+            y += 30;
+
+            for (const metrics of monthMetricsList) {
+                y = drawSingleMonthCalendarGrid(ctx, y, metrics);
+            }
+
+            if (useCathayTable) {
+                y = drawCathayBankTable(ctx, y, orderObj.revenue);
+            }
+        }
+
+        y += 14;
+
+        // 7. 底部感謝語與規格標記
+        ctx.font = '700 16px "M PLUS Rounded 1c", "Microsoft JhengHei", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('感謝您的購買 · 請冷藏保存', PRINTABLE_DOTS / 2, y);
+        y += 22;
+        ctx.font = '500 13px "JetBrains Mono", monospace';
+        ctx.fillText(`58mm (Bleed 5mm) | Chunk ${btPacketSize}B`, PRINTABLE_DOTS / 2, y);
+
+        // 同步更新左側直式 mm 尺規
+        drawVerticalMmRuler(alignedHeightDots);
+        return canvas;
+    }
+
+    function drawDashedLine(ctx, y) {
+        ctx.save();
+        ctx.setLineDash([6, 4]);
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(PRINTABLE_DOTS, y);
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    function drawSolidLine(ctx, y, width = 1.5) {
+        ctx.save();
+        ctx.setLineDash([]);
+        ctx.lineWidth = width;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(PRINTABLE_DOTS, y);
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    // 將 Canvas 轉換為 ESC/POS GS v 0 光柵位圖指令
+    function canvasToEscPosRaster(canvas) {
+        const ctx = canvas.getContext('2d');
+        const width = canvas.width;   // 384 dots
+        const height = canvas.height;
+        const imgData = ctx.getImageData(0, 0, width, height).data;
+        const bytesPerLine = width / 8; // 48 bytes per line
+
+        const header = [
+            0x1B, 0x40, // Initialize printer
+            0x1D, 0x76, 0x30, 0x00,
+            bytesPerLine & 0xFF, (bytesPerLine >> 8) & 0xFF,
+            height & 0xFF, (height >> 8) & 0xFF
+        ];
+        const footer = [0x1B, 0x64, 0x04]; // Feed 4 lines
+
+        const totalBuffer = new Uint8Array(header.length + (bytesPerLine * height) + footer.length);
+        totalBuffer.set(header, 0);
+
+        let offset = header.length;
+        for (let y = 0; y < height; y++) {
+            for (let xByte = 0; xByte < bytesPerLine; xByte++) {
+                let byteVal = 0;
+                for (let bit = 0; bit < 8; bit++) {
+                    const x = xByte * 8 + bit;
+                    const idx = (y * width + x) * 4;
+                    const r = imgData[idx], g = imgData[idx + 1], b = imgData[idx + 2], a = imgData[idx + 3];
+                    const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+                    if (a > 128 && luminance < 165) {
+                        byteVal |= (1 << (7 - bit));
+                    }
+                }
+                totalBuffer[offset++] = byteVal;
+            }
+        }
+        totalBuffer.set(footer, offset);
+        return totalBuffer;
+    }
+
+    // 依照設定的封包大小 (120 / 240 / 320 / 480 Bytes) 分割寫入藍牙特徵值
+    async function sendRawBytesOverBluetooth(uint8Data) {
+        if (!btCharacteristic) {
+            throw new Error('藍牙出單機尚未連線');
+        }
+        const chunkSize = btPacketSize || 240;
+        const canWriteWithoutResponse = btCharacteristic.properties.writeWithoutResponse;
+
+        for (let i = 0; i < uint8Data.length; i += chunkSize) {
+            const chunk = uint8Data.slice(i, i + chunkSize);
+            if (canWriteWithoutResponse && btCharacteristic.writeValueWithoutResponse) {
+                await btCharacteristic.writeValueWithoutResponse(chunk);
+            } else {
+                await btCharacteristic.writeValue(chunk);
+            }
+            await new Promise(r => setTimeout(r, 18));
+        }
+    }
+
+    // 印出指定訂單物件
+    window.printOrderReceipt = async function(orderObj, silentIfDisconnected = false) {
+        const canvas = await renderReceiptToCanvas(orderObj);
+        if (!btCharacteristic) {
+            if (!silentIfDisconnected) {
+                alert('已更新下方 58mm 直式尺規與日曆卡預覽！\n若要實體出單，請先點擊上方「搜尋連線」配對藍牙出單機。');
+            }
+            return;
+        }
+        try {
+            const escPosData = canvasToEscPosRaster(canvas);
+            await sendRawBytesOverBluetooth(escPosData);
+        } catch (err) {
+            alert('藍牙出單傳送失敗：' + err.message);
+        }
+    };
+
+    // 預覽目前購物車內容或範例單
+    window.refreshSimulatorPreview = async function() {
+        const venueName = (globalVenues[currentVenueId] && globalVenues[currentVenueId].name) ? globalVenues[currentVenueId].name : '點點綠-北投';
+        let previewCart = cart;
+        let previewRev = 0;
+
+        if (Object.keys(previewCart).length === 0) {
+            previewCart = {
+                'demo1': { qty: 4, item: { name: '大羊奶(月訂)', price: 180 } },
+                'demo2': { qty: 2, item: { name: '桂核(4)', price: 150 } }
+            };
+            previewRev = 1000;
+        } else {
+            Object.values(previewCart).forEach(c => { previewRev += (c.item.price || 0) * c.qty; });
+            previewRev = Math.max(0, previewRev - currentDiscount);
+        }
+
+        const sampleOrder = {
+            time: new Date().toLocaleTimeString('zh-TW', {hour: '2-digit', minute:'2-digit', hour12: false}),
+            dateStr: window.globalDateStr,
+            module: venueName,
+            discount: Object.keys(cart).length === 0 ? 20 : currentDiscount,
+            revenue: previewRev,
+            cartData: previewCart,
+            printCalendar: calendarCardEnabled,
+            calendarMonths: calendarMonthsCount
+        };
+        await renderReceiptToCanvas(sampleOrder);
+    };
+
+    window.previewCurrentCartReceipt = async function() {
+        await window.refreshSimulatorPreview();
+        const navItems = document.querySelectorAll('.bottom-nav .nav-item');
+        window.switchTab('settings', navItems[3]);
+        window.switchAdminTab('printer');
+    };
+
+    window.printTestReceipt = async function() {
+        await window.refreshSimulatorPreview();
+        if (!btCharacteristic) {
+            alert('尺規與日曆預覽已刷新！請先連線藍牙印表機即可進行實體測試出單。');
+            return;
+        }
+        const canvas = document.getElementById('receipt-preview-canvas');
+        const escPosData = canvasToEscPosRaster(canvas);
+        await sendRawBytesOverBluetooth(escPosData);
+    };
+
+    // 全局日期處理
+    const pad = n => n < 10 ? '0'+n : n;
+    const t = new Date();
+    window.globalDateStr = `${t.getFullYear()}-${pad(t.getMonth()+1)}-${pad(t.getDate())}`;
+    document.getElementById('global-date-filter').value = window.globalDateStr;
+    document.getElementById('cal-start-month').value = window.globalDateStr.substring(0, 7);
+
+    async function initializeSystem() {
+        loadBankConfig();
+        try {
+            const snap = await get(ref(db));
+            if (!snap.exists() || !snap.val().masterCatalog) {
+                await set(dbRefs.catalog, initDefaultCatalog);
+                await set(dbRefs.venues, initDefaultVenues);
+            }
+            
+            onValue(dbRefs.catalog, (snap) => { globalCatalog = snap.val() || {}; window.renderProductList(); if(currentVenueId) window.changeVenue(); });
+            onValue(dbRefs.venues, (snap) => { globalVenues = snap.val() || {}; window.renderVenueList(); window.initVenueSelect(); });
+            onValue(dbRefs.orders, (snap) => { globalOrders = snap.val() || {}; window.updateHistory(); window.updateStats(); });
+            await window.refreshSimulatorPreview();
+            document.getElementById('loading-overlay').style.display = 'none';
+        } catch (error) { 
+            await window.refreshSimulatorPreview();
+            document.getElementById('loading-overlay').style.display = 'none';
+            alert('雲端連線失敗，請檢查網路。'); 
+        }
+    }
+
+    // ====== UI 切換 ======
+    window.switchTab = function(tabId, navEl) {
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+        document.getElementById(`tab-${tabId}`).classList.add('active');
+        if (navEl) navEl.classList.add('active');
+        if (tabId === 'settings') window.refreshSimulatorPreview();
+    }
+
+    window.switchAdminTab = function(tab) {
+        document.querySelectorAll('.admin-section').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('#tab-settings .sub-nav-btn').forEach(el => el.classList.remove('active'));
+        document.getElementById(`admin-${tab}`).classList.add('active');
+        document.getElementById(`btn-admin-${tab}`).classList.add('active');
+        if (tab === 'printer') window.refreshSimulatorPreview();
+    }
+
+    window.switchStatMode = function(mode) {
+        window.statMode = mode;
+        document.getElementById('btn-stat-daily').classList.remove('active');
+        document.getElementById('btn-stat-monthly').classList.remove('active');
+        document.getElementById(`btn-stat-${mode}`).classList.add('active');
+        window.updateStats();
+    }
+
+    window.onGlobalDateChange = function() {
+        window.globalDateStr = document.getElementById('global-date-filter').value;
+        if (window.globalDateStr) {
+            document.getElementById('cal-start-month').value = window.globalDateStr.substring(0, 7);
+        }
+        window.updateHistory();
+        window.updateStats();
+        window.refreshSimulatorPreview();
+    }
+
+    // ====== POS 標籤與購物車 ======
+    window.toggleTag = function(category, value, element) {
+        const container = document.getElementById(`tags-${category}`);
+        if(element.classList.contains('active')) {
+            element.classList.remove('active'); window.selectedTags[category] = '';
+        } else {
+            container.querySelectorAll('.chip').forEach(el => el.classList.remove('active'));
+            element.classList.add('active'); window.selectedTags[category] = value;
+        }
+    }
+
+    window.toggleTagInEdit = function(category, value, element) {
+        const container = document.getElementById(`eo-tags-${category}`);
+        if(element.classList.contains('active')) {
+            element.classList.remove('active'); window.editTags[category] = '';
+        } else {
+            container.querySelectorAll('.chip').forEach(el => el.classList.remove('active'));
+            element.classList.add('active'); window.editTags[category] = value;
+        }
+    }
+
+    window.clearTags = function() {
+        window.selectedTags = { type: '', demo: '' };
+        document.querySelectorAll('#tab-pos .chip').forEach(el => el.classList.remove('active'));
+    }
+
+    window.initVenueSelect = function() {
+        const select = document.getElementById('global-venue-select');
+        const oldVal = select.value; select.innerHTML = '';
+        Object.keys(globalVenues).forEach(vId => { select.innerHTML += `<option value="${vId}">${globalVenues[vId].name}</option>`; });
+        if(globalVenues[oldVal]) currentVenueId = oldVal; else currentVenueId = Object.keys(globalVenues)[0] || '';
+        select.value = currentVenueId; window.changeVenue();
+    }
+
+    window.changeVenue = function() {
+        currentVenueId = document.getElementById('global-venue-select').value;
+        if(!currentVenueId || !globalVenues[currentVenueId]) return;
+        const vData = globalVenues[currentVenueId]; currentVenueProducts = [];
+        if(vData.items) {
+            Object.keys(vData.items).forEach(pId => {
+                const masterItem = globalCatalog[pId];
+                if(masterItem) currentVenueProducts.push({ ...masterItem, price: vData.items[pId] });
+            });
+        }
+        currentVenueProducts.sort((a, b) => (a.sortOrder || 999) - (b.sortOrder || 999));
+        cart = {}; currentDiscount = 0; window.clearTags();
+        window.renderPOSProducts(); window.updateCart();
+    }
+
+    window.renderPOSProducts = function() {
+        const grid = document.getElementById('product-grid'); grid.innerHTML = '';
+        currentVenueProducts.forEach(p => {
+            const btn = document.createElement('div'); btn.className = `btn-product ${p.cat}`;
+            btn.onclick = () => window.addToCart(p);
+            btn.innerHTML = `<div>${p.name}</div><div class="p-price mono">$${p.price}</div>`;
+            grid.appendChild(btn);
+        });
+    }
+
+    window.addToCart = function(product) {
+        if (!product || !product.id) return;
+        if (cart[product.id]) cart[product.id].qty++; else cart[product.id] = { qty: 1, item: product };
+        window.updateCart();
+        const cartArea = document.getElementById('cart-area'); cartArea.scrollTop = cartArea.scrollHeight;
+    }
+
+    window.plusCart = function(id) { if(cart[id]) { cart[id].qty++; window.updateCart(); } }
+    window.minusCart = function(id) { if (cart[id] && cart[id].qty > 1) cart[id].qty--; else delete cart[id]; window.updateCart(); }
+
+    window.updateCart = function() {
+        const list = document.getElementById('cart-list'); const ids = Object.keys(cart); let subtotal = 0;
+        if (ids.length === 0) {
+            list.innerHTML = '<div style="text-align:center; padding: 20px; color: #8e8e93; font-size: 0.9rem;">點擊上方商品開始結帳</div>'; currentDiscount = 0; 
+        } else {
+            list.innerHTML = '';
+            ids.forEach(id => {
+                const c = cart[id]; subtotal += c.item.price * c.qty;
+                list.innerHTML += `<div class="cart-item"><div><div style="font-weight:800">${c.item.name}</div><div class="mono" style="font-size:0.85rem; color:#8e8e93">$${c.item.price} × ${c.qty}</div></div><div class="qty-controls"><button class="qty-btn" onclick="window.minusCart('${id}')">-</button><span class="mono" style="font-weight:800; min-width:20px; text-align:center">${c.qty}</span><button class="qty-btn" onclick="window.plusCart('${id}')">+</button></div></div>`;
+            });
+        }
+        let total = subtotal - currentDiscount; if(total < 0) total = 0;
+        document.getElementById('discount-val').innerText = currentDiscount;
+        document.getElementById('total-price').innerText = total;
+        
+        const btnCheckout = document.getElementById('btn-checkout');
+        if (ids.length > 0) btnCheckout.classList.remove('disabled'); else btnCheckout.classList.add('disabled');
+    }
+
+    window.openDiscountModal = function() { document.getElementById('discount-input-field').value = currentDiscount || ''; document.getElementById('discount-modal').style.display = 'flex'; }
+    window.closeModal = function(id) { document.getElementById(id).style.display = 'none'; }
+    window.setDiscountPreset = function(val) { document.getElementById('discount-input-field').value = val; }
+    window.confirmDiscount = function() {
+        const inputVal = parseInt(document.getElementById('discount-input-field').value);
+        currentDiscount = isNaN(inputVal) ? 0 : inputVal; window.updateCart(); window.closeModal('discount-modal');
+    }
+
+    // ====== 結帳寫入與自動藍牙出單 ======
+    window.checkout = async function() {
+        let totalCost = 0, totalRevenue = 0, itemsForRecord = [];
+        Object.keys(cart).forEach(id => {
+            const c = cart[id]; totalCost += (c.item.cost || 0) * c.qty; totalRevenue += (c.item.price || 0) * c.qty;
+            itemsForRecord.push(`${c.item.name}x${c.qty}`);
+        });
+
+        const finalTotal = Math.max(0, totalRevenue - currentDiscount);
+        const venueName = (globalVenues[currentVenueId] && globalVenues[currentVenueId].name) ? globalVenues[currentVenueId].name : '未指定';
+        
+        const orderData = {
+            time: new Date().toLocaleTimeString('zh-TW', {hour: '2-digit', minute:'2-digit', hour12: false}),
+            dateStr: window.globalDateStr,
+            monthStr: window.globalDateStr.substring(0, 7),
+            timestamp: Date.now(),
+            module: venueName,
+            items: itemsForRecord.join(', '),
+            discount: currentDiscount || 0,
+            revenue: finalTotal || 0,
+            profit: (finalTotal - totalCost) || 0,
+            cartData: JSON.parse(JSON.stringify(cart)),
+            crmType: window.selectedTags.type,
+            crmDemo: window.selectedTags.demo,
+            printCalendar: calendarCardEnabled,
+            calendarMonths: calendarMonthsCount
+        };
+
+        await push(dbRefs.orders, orderData);
+
+        if (autoPrintEnabled) {
+            await window.printOrderReceipt(orderData, true);
+        } else {
+            await renderReceiptToCanvas(orderData);
+        }
+
+        cart = {}; currentDiscount = 0; window.clearTags(); window.updateCart();
+        const btn = document.getElementById('btn-checkout');
+        btn.innerText = btCharacteristic && autoPrintEnabled ? "✅ 已同步並出單！" : "✅ 同步成功！";
+        setTimeout(() => btn.innerText = "完成結帳 (同步+出單)", 1500);
+    }
+
+    // ====== 紀錄頁面 ======
+    window.updateHistory = function() {
+        const list = document.getElementById('history-list'); list.innerHTML = '';
+        let orderKeys = Object.keys(globalOrders).sort((a, b) => (globalOrders[b].timestamp || 0) - (globalOrders[a].timestamp || 0));
+        
+        orderKeys = orderKeys.filter(key => {
+            const o = globalOrders[key];
+            const oDateStr = o.dateStr || (new Date(o.timestamp || Date.now())).toLocaleDateString('en-CA');
+            return oDateStr === window.globalDateStr;
+        });
+
+        if(orderKeys.length === 0) { list.innerHTML = '<div style="grid-column: span 2; text-align:center; padding: 30px; color:#8e8e93; font-size:0.9rem;">此日期無紀錄</div>'; return; }
+        
+        orderKeys.forEach((key) => {
+            const o = globalOrders[key];
+            let tagsHtml = '';
+            if(o.crmType) tagsHtml += `<span class="tag-badge">${o.crmType}</span> `;
+            if(o.crmDemo) tagsHtml += `<span class="tag-badge" style="background:#e8f5e9; color:#2e7d32;">${o.crmDemo}</span> `;
+            if(o.printCalendar) tagsHtml += `<span class="tag-badge" style="background:#dcfce7; color:#15803d;">📅 月結${o.calendarMonths||1}M</span>`;
+
+            list.innerHTML += `
+                <div class="record-card" onclick="window.editOrder('${key}')">
+                    <div class="record-header">
+                        <div class="record-header-top">
+                            <span class="mono" style="font-size:0.8rem; font-weight:700; color:var(--text-main);">🕒 ${o.time||'未知'}</span>
+                        </div>
+                        <div style="font-size:0.75rem; color:var(--text-muted);">${o.module||'未指定'}</div>
+                    </div>
+                    <div style="margin-bottom: 5px; font-size: 0.85rem; flex-grow: 1; color:var(--text-main); font-weight:700;">${o.items||'無資訊'}</div>
+                    <div style="margin-bottom: 6px;">${tagsHtml}</div>
+                    <div style="display:flex; justify-content:space-between; align-items:flex-end;">
+                        <span class="mono" style="font-size:0.75rem; color:#8e8e93;">折 -$${o.discount||0}</span>
+                        <span class="mono" style="font-size: 1.1rem; font-weight: 800; color: var(--primary);">$${o.revenue||0}</span>
+                    </div>
+                </div>`;
+        });
+    }
+
+    // ====== 修改訂單與補印功能 ======
+    window.editOrder = function(key) {
+        const o = globalOrders[key];
+        if(!o) return;
+        document.getElementById('eo-id').value = key;
+        document.getElementById('eo-items').innerText = o.items || '無商品資訊';
+        document.getElementById('eo-discount').value = o.discount || 0;
+        
+        window.editTags = { type: o.crmType || '', demo: o.crmDemo || '' };
+        
+        document.querySelectorAll('#eo-tags-type .chip').forEach(el => {
+            el.classList.remove('active');
+            if(el.innerText.includes(o.crmType) && o.crmType) el.classList.add('active');
+        });
+        document.querySelectorAll('#eo-tags-demo .chip').forEach(el => {
+            el.classList.remove('active');
+            if(el.innerText.includes(o.crmDemo) && o.crmDemo) el.classList.add('active');
+        });
+
+        document.getElementById('edit-order-modal').style.display = 'flex';
+    }
+
+    window.reprintOrderFromModal = async function(forceCalendar = false) {
+        const key = document.getElementById('eo-id').value;
+        const o = globalOrders[key];
+        if (!o) return;
+        window.closeModal('edit-order-modal');
+        const printObj = {
+            ...o,
+            printCalendar: forceCalendar ? true : !!o.printCalendar,
+            calendarMonths: calendarMonthsCount
+        };
+        await window.printOrderReceipt(printObj, false);
+        if (!btCharacteristic) {
+            const navItems = document.querySelectorAll('.bottom-nav .nav-item');
+            window.switchTab('settings', navItems[3]);
+            window.switchAdminTab('printer');
+        }
+    };
+
+    window.saveOrderEdit = async function() {
+        const key = document.getElementById('eo-id').value;
+        const o = globalOrders[key];
+        if(!o) return;
+
+        const newDiscount = parseInt(document.getElementById('eo-discount').value) || 0;
+        let originalRevenue = 0; let originalCost = 0;
+        if(o.cartData) {
+            Object.keys(o.cartData).forEach(id => {
+                const c = o.cartData[id];
+                originalRevenue += (c.item.price || 0) * c.qty;
+                originalCost += (c.item.cost || 0) * c.qty;
+            });
+        } else {
+            originalRevenue = (o.revenue || 0) + (o.discount || 0);
+            originalCost = originalRevenue - (o.profit || 0) - (o.discount || 0);
+        }
+
+        const newRevenue = originalRevenue - newDiscount;
+        const newProfit = newRevenue - originalCost;
+
+        await update(ref(db, `orders/${key}`), {
+            discount: newDiscount,
+            revenue: newRevenue,
+            profit: newProfit,
+            crmType: window.editTags.type,
+            crmDemo: window.editTags.demo
+        });
+
+        window.closeModal('edit-order-modal');
+    }
+
+    window.cleanInvalidOrders = async function() {
+        if(!confirm('確定要清除所有「無商品資訊」的幽靈訂單嗎？')) return;
+        let keysToDelete = [];
+        Object.keys(globalOrders).forEach(key => {
+            const o = globalOrders[key];
+            if (!o.items || o.items === '無商品資訊' || Object.keys(o.cartData || {}).length === 0) keysToDelete.push(key);
+        });
+        if (keysToDelete.length === 0) return alert('檢查完畢：目前沒有無效的幽靈訂單！');
+        const updates = {}; keysToDelete.forEach(key => { updates[`orders/${key}`] = null; });
+        await update(ref(db), updates); alert(`清理完成！共清除了 ${keysToDelete.length} 筆無效訂單。`);
+    }
+
+    // ====== 報表與 CRM 統計 ======
+    window.updateStats = function() {
+        const filterDateStr = window.globalDateStr;
+        const filterMonthStr = window.globalDateStr.substring(0, 7);
+        
+        let totalRev = 0, totalProfit = 0, itemCounts = {};
+        let crmTypeCounts = { '首次購買': 0, '回購客': 0 }; let crmDemoCounts = {}; let validOrderCount = 0;
+
+        Object.keys(globalOrders).forEach(key => {
+            const o = globalOrders[key];
+            const oDateStr = o.dateStr || (new Date(o.timestamp || Date.now())).toLocaleDateString('en-CA');
+            const oMonthStr = o.monthStr || oDateStr.substring(0, 7);
+
+            let isMatch = false;
+            if (window.statMode === 'daily' && oDateStr === filterDateStr) isMatch = true;
+            if (window.statMode === 'monthly' && oMonthStr === filterMonthStr) isMatch = true;
+
+            if(isMatch) {
+                validOrderCount++; totalRev += o.revenue || 0; totalProfit += o.profit || 0;
+                if(o.cartData) {
+                    Object.keys(o.cartData).forEach(id => {
+                        const item = o.cartData[id].item, qty = o.cartData[id].qty;
+                        if(item && item.name) itemCounts[item.name] = (itemCounts[item.name] || 0) + qty;
+                    });
+                }
+                if(o.crmType) crmTypeCounts[o.crmType] = (crmTypeCounts[o.crmType] || 0) + 1;
+                if(o.crmDemo) crmDemoCounts[o.crmDemo] = (crmDemoCounts[o.crmDemo] || 0) + 1;
+            }
+        });
+
+        document.getElementById('stat-revenue').innerText = totalRev.toLocaleString();
+        document.getElementById('stat-profit').innerText = totalProfit.toLocaleString();
+        document.getElementById('stat-customers').innerText = validOrderCount;
+
+        const crmList = document.getElementById('stat-crm-list'); crmList.innerHTML = '';
+        if(validOrderCount === 0) {
+            crmList.innerHTML = '<div style="grid-column: span 2; text-align:center; padding: 10px; color:#8e8e93; font-size:0.9rem;">無客群資料</div>';
+        } else {
+            const first = crmTypeCounts['首次購買'], ret = crmTypeCounts['回購客'], totalTagged = first + ret;
+            const retRate = totalTagged > 0 ? Math.round((ret / totalTagged) * 100) : 0;
+            crmList.innerHTML += `<div class="crm-item" style="grid-column: span 2; background:#e3f2fd; color:#0056b3;"><span>🔄 回購率</span><span class="mono">${retRate}% (首 ${first} / 回 ${ret})</span></div>`;
+            const sortedDemos = Object.keys(crmDemoCounts).sort((a,b) => crmDemoCounts[b] - crmDemoCounts[a]);
+            sortedDemos.forEach(demo => { crmList.innerHTML += `<div class="crm-item"><span>${demo}</span><span class="mono" style="color:var(--primary);">${crmDemoCounts[demo]} 人</span></div>`; });
+        }
+
+        const invList = document.getElementById('inventory-list'); invList.innerHTML = '';
+        const sortedItems = Object.keys(itemCounts).sort((a,b) => itemCounts[b] - itemCounts[a]);
+        if(sortedItems.length === 0) invList.innerHTML = '<div style="grid-column: span 4; text-align:center; color:#8e8e93; padding:10px;">無銷售資料</div>';
+        sortedItems.forEach(name => {
+            invList.innerHTML += `
+                <div class="inv-card">
+                    <div class="inv-name">${name}</div>
+                    <div class="inv-qty mono">${itemCounts[name]}</div>
+                </div>`;
+        });
+    }
+
+    // ====== 外派中心：管理 ======
+    window.renderVenueList = function() {
+        const list = document.getElementById('venue-list'); list.innerHTML = '';
+        Object.keys(globalVenues).forEach(vId => {
+            const v = globalVenues[vId]; const itemCount = v.items ? Object.keys(v.items).length : 0;
+            list.innerHTML += `<div class="admin-card"><div style="flex-grow:1;"><div style="font-weight:800; font-size:1rem;">${v.name}</div><div style="font-size:0.8rem; color:var(--text-muted);">配置 <span class="mono">${itemCount}</span> 項</div></div><div style="display:flex; gap:6px;"><button class="btn-outline" onclick="window.openVenueEditor('${vId}')">編輯</button><button class="btn-outline" style="color:red; border-color:red;" onclick="window.deleteVenue('${vId}')">刪除</button></div></div>`;
+        });
+    }
+    window.openVenueEditor = function(vId = null) {
+        const isEdit = vId !== null;
+        document.getElementById('ve-id').value = isEdit ? vId : 'v_' + Date.now();
+        document.getElementById('ve-name').value = isEdit ? globalVenues[vId].name : '';
+        const vItems = isEdit ? (globalVenues[vId].items || {}) : {};
+        const pList = document.getElementById('ve-products'); pList.innerHTML = '';
+        let sortedCatalog = Object.values(globalCatalog).sort((a, b) => (a.sortOrder || 999) - (b.sortOrder || 999));
+        sortedCatalog.forEach(p => {
+            const isChecked = isEdit ? !!vItems[p.id] : true;
+            const price = isEdit && vItems[p.id] ? vItems[p.id] : p.defPrice;
+            pList.innerHTML += `<div class="ve-item"><label style="display:flex; align-items:center; gap:6px; flex-grow:1;"><input type="checkbox" id="ve-chk-${p.id}" ${isChecked?'checked':''} style="width:16px; height:16px;"><span style="font-weight:700; font-size:0.9rem;">${p.name}</span></label><div style="display:flex; align-items:center; gap:6px;"><span class="mono" style="color:var(--text-muted); font-size:0.8rem;">$</span><input type="number" id="ve-price-${p.id}" class="ve-price-input mono" value="${price}" inputmode="numeric"></div></div>`;
+        });
+        document.getElementById('venue-modal').style.display = 'flex';
+    }
+    window.saveVenue = async function() {
+        const vId = document.getElementById('ve-id').value, vName = document.getElementById('ve-name').value.trim();
+        if(!vName) return alert('請輸入場地名稱！');
+        const items = {};
+        Object.keys(globalCatalog).forEach(pId => {
+            if(document.getElementById(`ve-chk-${pId}`).checked) items[pId] = parseInt(document.getElementById(`ve-price-${pId}`).value) || globalCatalog[pId].defPrice || 0;
+        });
+        if(Object.keys(items).length === 0) return alert('請至少勾選一項！');
+        await set(ref(db, `venues/${vId}`), { name: vName, items: items }); window.closeModal('venue-modal');
+    }
+    window.deleteVenue = async function(vId) { if(Object.keys(globalVenues).length <= 1) return alert('請至少保留一個場地！'); if(confirm('確定刪除？')) await remove(ref(db, `venues/${vId}`)); }
+
+    window.renderProductList = function() {
+        const list = document.getElementById('product-list'); list.innerHTML = '';
+        let sortedArray = Object.values(globalCatalog).sort((a, b) => (a.sortOrder||999) - (b.sortOrder||999));
+        sortedArray.forEach((p) => {
+            const profit = (p.defPrice||0) - (p.cost||0), margin = p.defPrice > 0 ? Math.round((profit/p.defPrice)*100) : 0;
+            list.innerHTML += `<div class="admin-card"><div style="flex-grow:1;"><div style="display:flex; align-items:center; gap:6px;"><span class="sort-badge">#${p.sortOrder||0}</span><span style="font-weight:800; font-size:1rem;">${p.name||'未命名'}</span></div><div class="mono" style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">售價 $${p.defPrice||0} | 成本 $${p.cost||0}</div><div class="profit-badge mono">毛利 $${profit} (${margin}%)</div></div><div style="display:flex; gap:6px;"><button class="btn-outline" onclick="window.openProductEditor('${p.id}')">編輯</button><button class="btn-outline" style="color:red; border-color:red;" onclick="window.deleteProduct('${p.id}')">刪除</button></div></div>`;
+        });
+    }
+
+    window.openProductEditor = function(pId = null) {
+        const isEdit = pId !== null;
+        document.getElementById('pe-title').innerText = isEdit ? '編輯商品設定' : '新增商品';
+        document.getElementById('pe-id').value = isEdit ? pId : 'p_' + Date.now();
+        if (isEdit) {
+            const p = globalCatalog[pId];
+            document.getElementById('pe-name').value = p.name || ''; document.getElementById('pe-cat').value = p.cat || 'cat-milk';
+            document.getElementById('pe-price').value = p.defPrice || 0; document.getElementById('pe-cost').value = p.cost || 0;
+            document.getElementById('pe-sort').value = p.sortOrder !== undefined ? p.sortOrder : 999;
+        } else {
+            document.getElementById('pe-name').value = ''; document.getElementById('pe-cat').value = 'cat-milk';
+            document.getElementById('pe-price').value = ''; document.getElementById('pe-cost').value = '';
+            let maxOrder = -1; Object.values(globalCatalog).forEach(p => { if((p.sortOrder||0) > maxOrder) maxOrder = p.sortOrder||0; });
+            document.getElementById('pe-sort').value = maxOrder + 1;
+        }
+        document.getElementById('product-modal').style.display = 'flex';
+    }
+
+    window.saveProduct = async function() {
+        const pId = document.getElementById('pe-id').value, name = document.getElementById('pe-name').value.trim();
+        if(!name) return alert('請輸入商品名稱！');
+        await set(ref(db, `masterCatalog/${pId}`), { 
+            id: pId, name: name, cat: document.getElementById('pe-cat').value, 
+            defPrice: parseInt(document.getElementById('pe-price').value)||0, 
+            cost: parseInt(document.getElementById('pe-cost').value)||0, 
+            sortOrder: parseInt(document.getElementById('pe-sort').value)||0 
+        });
+        window.closeModal('product-modal');
+    }
+    window.deleteProduct = async function(pId) { if(confirm('確定刪除商品？')) await remove(ref(db, `masterCatalog/${pId}`)); }
+
+    initializeSystem();
+</script>
+</body>
+</html>
